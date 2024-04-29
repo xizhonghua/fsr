@@ -2,6 +2,9 @@
 
 The goal of this project is to provide SISR models for realtime video supre-resolution.
 
+## Example
+![example](examples/example.png)
+model: anime_v1_3x, no over-sharpening, no over-smoothing.
 
 ## Benchmark
 | Model      | Type              |  Input           | Output       | Device              | Latency (ms) |
