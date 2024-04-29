@@ -15,14 +15,12 @@ from vidgear.gears import WriteGear
 parser = argparse.ArgumentParser(description="Run video.")
 parser.add_argument("-i", "--input")
 parser.add_argument("-o", "--output")
+parser.add_argument("-m", "--model", default="models/anime_0.1")
 parser.add_argument("-v", "--visualize", default=False, action=argparse.BooleanOptionalAction)
 parser.add_argument("--height", default=720)
 args = parser.parse_args()
 
-print(args)
-print(args.visualize)
-
-model = tf.keras.models.load_model("saved")
+model = tf.keras.models.load_model(args.model)
 
 def process_frame(lr):
   lr = tf.expand_dims(lr, axis=0)
