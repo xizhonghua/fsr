@@ -10,9 +10,9 @@ The goal of this project is to provide SISR models for realtime video supre-reso
 | anime v1 3x | TfLite fp16       | 640x360          | 1920x1080    | SD 8Gen3 Adreno 750 |        20.05 |
 
 ## Example
-<img src="examples/suzume_lr.png" width="480" /><img src="examples/suzume_sr.png" width="480" />
+<img src="examples/suzume_lr.png" width="384" /><img src="examples/suzume_sr.png" width="384" />
 
-<img src="examples/ff7_lr.png" width="480" /><img src="examples/ff7_sr.png" width="480" />
+<img src="examples/ff7_lr.png" width="384" /><img src="examples/ff7_sr.png" width="384" />
 
 model: anime_v1_3x, no over-sharpening, no over-smoothing.
 
