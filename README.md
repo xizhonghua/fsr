@@ -13,8 +13,13 @@ The goal of this project is to provide SISR models for realtime video supre-reso
 
 ## VCD V1 3x
 Trained with compressed images
+
 <img src="examples/ct_lr.png" width="384" /><img src="examples/ct_sr.png" width="384" />
 
+<img src="examples/val_lr.png" width="384" /><img src="examples/val_sr.png" width="384" />
+
+### Demo Video
+<a href="https://www.youtube.com/embed/_gX03qz4PBY"><img src="https://i3.ytimg.com/vi/_gX03qz4PBY/maxresdefault.jpg"></a>
 
 ## Anime V1 3X
 <img src="examples/suzume_lr.png" width="384" /><img src="examples/suzume_sr.png" width="384" />
