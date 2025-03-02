@@ -6,7 +6,7 @@ import time
 
 model = tf.keras.models.load_model('saved')
 
-x = tf.keras.Input(shape=[360,640,3], batch_size=1)
+x = tf.keras.Input(shape=[160,240,3], batch_size=1)
 y = model(x)
 model = tf.keras.Model(inputs=x, outputs=y)
 

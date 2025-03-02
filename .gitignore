@@ -2,3 +2,6 @@
 dataset*
 videos*
 saved
+saved_model
+test_images
+log
