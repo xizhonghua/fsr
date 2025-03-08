@@ -10,17 +10,18 @@ import tensorflow as tf
 
 parser = argparse.ArgumentParser(description="Train the model.")
 parser.add_argument("-s", "--scale_factor", type=int, default=3)
-parser.add_argument("-f", "--filters", type=int, default=64)
-parser.add_argument("--upsample_filters", type=int, default=64)
+parser.add_argument("-f", "--filters", type=int, default=32)
+parser.add_argument("--upsample_filters", type=int, default=32)
 parser.add_argument("-l", "--layers", type=int, default=4)
-parser.add_argument("-d", "--dataset", default="dataset_ghibli")
-parser.add_argument("-e", "--epochs", type=int, default=50)
+parser.add_argument("-d", "--dataset", default="datasets/dataset_ghibli")
+parser.add_argument("-e", "--epochs", type=int, default=100)
 parser.add_argument("--steps_per_epoch", type=int, default=200)
 parser.add_argument("-b", "--batch_size", default=16)
 parser.add_argument("--lr_patch_size", type=int, default=64)
-parser.add_argument("--jpeg_prob", default=0.5)
-parser.add_argument("--min_jpeg_quality", default=20)
+parser.add_argument("--jpeg_prob", type=float, default=0.0)
+parser.add_argument("--min_jpeg_quality", default=60)
 parser.add_argument("--max_jpeg_quality", default=95)
+parser.add_argument("--log_images", type=bool, default=False)
 args = parser.parse_args()
 
 class VGGFeatureMatchingLoss(tf.keras.losses.Loss):
@@ -29,20 +30,19 @@ class VGGFeatureMatchingLoss(tf.keras.losses.Loss):
       self.encoder_layers = [
         "block2_conv2",
       ]
-      vgg = tf.keras.applications.VGG19(include_top=False, weights="imagenet")
+      vgg = tf.keras.applications.VGG16(include_top=False, weights="imagenet")
       layer_outputs = [vgg.get_layer(x).output for x in self.encoder_layers]
       self.vgg_model = tf.keras.Model(vgg.input, layer_outputs, name="VGG")
       self.vgg_model.trainable=False
       self.mae = tf.keras.losses.MeanAbsoluteError()
 
   def call(self, y_true, y_pred):
-      y_true = tf.keras.applications.vgg19.preprocess_input(255 * y_true)
-      y_pred = tf.keras.applications.vgg19.preprocess_input(255 * y_pred)
-      real_feature = self.vgg_model(y_true)
-      fake_feature = self.vgg_model(y_pred)
-      vgg_loss = self.mae(real_feature, fake_feature)
-      mae = tf.abs(y_true - y_pred)
-      return tf.reduce_mean(mae) + tf.reduce_mean(vgg_loss)
+      
+      y_true_p = tf.keras.applications.vgg16.preprocess_input(255 * y_true)
+      y_pred_p = tf.keras.applications.vgg16.preprocess_input(255 * y_pred)
+      vgg_loss = self.mae(self.vgg_model(y_true_p), self.vgg_model(y_pred_p))
+      mae_loss = tf.abs(y_true - y_pred)
+      return 1e2 * tf.reduce_mean(mae_loss) + tf.reduce_mean(vgg_loss)
 
 class CombinedLoss(tf.keras.losses.Loss):
   def call(self, y_true, y_pred):
@@ -69,7 +69,6 @@ class LogImageCallback(tf.keras.callbacks.Callback):
     index = 0
     for lr, hr in self.dataset.take(5):
       sr = tf.squeeze(self.model(tf.expand_dims(lr, axis=0)),axis=0)
-      lr = tf.image.resize(lr, tf.shape(sr)[0:2])
       sr = tf.image.convert_image_dtype(sr, dtype=tf.uint8, saturate=True)
       lr = tf.image.convert_image_dtype(lr, dtype=tf.uint8, saturate=True)
       hr = tf.image.convert_image_dtype(hr, dtype=tf.uint8, saturate=True)
@@ -105,24 +104,20 @@ def build_model(scale_factor, filters, layers, channels=3, kernel_size=3):
   return tf.keras.Model(inputs, outputs)
 
 def scheduler(epoch, lr):
-  return lr * 0.92
+  return lr * 0.95
 
 def get_paths(dataset_name, id):
-  hr = glob.glob(f'{dataset_name}/{id}/*.jpg')
+  hr = glob.glob(f'{dataset_name}/{id}/*.jpg') + glob.glob(f'{dataset_name}/{id}/*.png')
   return hr, hr
 
 def load_image(path):
   raw = tf.io.read_file(path)
   image = tf.io.decode_image(raw)
-  image = tf.image.convert_image_dtype(image, dtype=tf.float32)
+  image = tf.cast(image, tf.float32) / 255.0
   return image
 
 def load_image_pair(x_path, y_path):
   return None, load_image(y_path)
-
-
-def resize(image, height, width, method):
-  return tf.image.resize(image, [height, width], method=method)
 
 def random_jpeg_quality_with_probability(image, probability=0.5, min_jpeg_quality=60, max_jpeg_quality=95):
   """
@@ -151,6 +146,74 @@ def random_jpeg_quality_with_probability(image, probability=0.5, min_jpeg_qualit
                   lambda: _apply_random_jpeg_quality(image),  # True branch: Apply the transform
                   lambda: image)  # False branch: Return the original image
 
+
+def nearest_neighbor_upsampling(input_tensor, upsample_factor):
+  """
+  Performs nearest neighbor upsampling using conv2d in TensorFlow.
+
+  Args:
+    input_tensor: A 4D tensor of shape [batch, height, width, channels].
+    upsample_factor: An integer representing the upsampling factor.
+
+  Returns:
+    A 4D tensor of shape [batch, height*upsample_factor, width*upsample_factor, channels].
+  """
+  input_tensor = tf.expand_dims(input_tensor, axis=0)
+
+  batch_size, height, width, channels = input_tensor.shape
+
+  # Create a kernel for nearest neighbor upsampling.
+  kernel_size = upsample_factor
+  kernel = tf.ones((kernel_size, kernel_size, channels, channels), dtype=tf.float32)
+
+  # Upsample using transposed convolution (conv2d_transpose).
+  output_tensor = tf.nn.conv2d_transpose(
+      input_tensor,
+      kernel,
+      output_shape=[batch_size, height * upsample_factor, width * upsample_factor, channels],
+      strides=[1, upsample_factor, upsample_factor, 1],
+      padding='SAME'
+  )
+
+  output_tensor = tf.squeeze(output_tensor, 0)
+
+  return output_tensor
+
+def nearest_neighbor_downsampling(input_tensor, downsample_factor):
+  """
+  Performs nearest neighbor downsampling using conv2d in TensorFlow.
+
+  Args:
+    input_tensor: A 4D tensor of shape [batch, height, width, channels].
+    downsample_factor: An integer representing the downsampling factor.
+
+  Returns:
+    A 4D tensor of shape [batch, height/downsample_factor, width/downsample_factor, channels].
+  """
+
+  input_tensor = tf.expand_dims(input_tensor, axis=0)
+
+  batch_size, height, width, channels = input_tensor.shape
+
+  # Create a kernel for nearest neighbor downsampling.
+  kernel_size = downsample_factor
+  kernel = tf.ones((kernel_size, kernel_size, channels, 1), dtype=tf.float32)
+
+  # Perform depthwise convolution with strides.
+  output_tensor = tf.nn.depthwise_conv2d(
+      input_tensor,
+      kernel,
+      strides=[1, downsample_factor, downsample_factor, 1],
+      padding='SAME'
+  )
+
+  # Reshape to get the average.
+  output_tensor = output_tensor / (kernel_size * kernel_size)
+
+  output_tensor = tf.squeeze(output_tensor, 0)
+
+  return output_tensor
+
 def preprocess(x, y):
   lr_width = lr_height = args.lr_patch_size
 
@@ -160,9 +223,12 @@ def preprocess(x, y):
   sr_width = lr_width * args.scale_factor
   
   y = tf.image.random_crop(y, (crop_height, crop_width, 3))
-  x = tf.image.resize(y, size=[lr_height, lr_width], method='nearest')
-
-  x = random_jpeg_quality_with_probability(x, probability=args.jpeg_prob)
+  # blur the input...
+  yp = tf.image.resize(y, size=[int(crop_height * 0.5), int(crop_width * 0.5)], method='area', antialias=True)
+  x = tf.image.resize(yp, size=[lr_height, lr_width], method='nearest')
+  # x = tf.keras.layers.Resizing(lr_height, lr_width, interpolation='nearest')(y)
+  # x = nearest_neighbor_downsampling(y, args.scale_factor)
+  x = random_jpeg_quality_with_probability(x, args.jpeg_prob, args.min_jpeg_quality, args.max_jpeg_quality)
 
   return x, y
 
@@ -205,9 +271,19 @@ def main():
   opt = tf.keras.optimizers.Adam(learning_rate=1e-3)
   model.compile(optimizer=opt, loss=loss_fn, metrics=[psnr])
 
-  model.fit(dataset, epochs=args.epochs, steps_per_epoch=args.steps_per_epoch, callbacks=[
-    tf.keras.callbacks.LearningRateScheduler(scheduler), ExportModelCallback(), LogImageCallback(dataset)])
-  model.export("exported_model")
+  callbacks = [
+    tf.keras.callbacks.LearningRateScheduler(scheduler), ExportModelCallback()
+  ]
+  if args.log_images:
+    callbacks.append(LogImageCallback(dataset))
+
+  model.export("saved_model")
+  model.fit(dataset, epochs=args.epochs, steps_per_epoch=args.steps_per_epoch, callbacks=callbacks)
+
+def print_args():
+  print(sys.argv[0] + ' ' + ' '.join(f'--{k}={v}' for k, v in vars(args).items()))
 
 if __name__ == '__main__':
+    print_args()
     main()
+    print_args()

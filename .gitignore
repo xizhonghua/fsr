@@ -1,5 +1,5 @@
 .DS_Store
-dataset*
+datasets*
 videos*
 saved
 saved_model
